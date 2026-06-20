@@ -1,0 +1,42 @@
+name: Update NFL Playoff Calendar
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: '0 12 1 * *'
+    - cron: '0 12 * 12,1,2 *'
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch events
+        run: python fetch_events.py
+
+      - name: Generate calendar
+        run: python generate_calendar.py
+
+      - name: Commit updated calendar
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data/events.json nfl-playoffs.ics
+
+          git diff --staged --quiet || (
+            git commit -m "Update playoff calendar"
+            git push
+          )
