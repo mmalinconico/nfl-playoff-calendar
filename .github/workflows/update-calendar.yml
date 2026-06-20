@@ -34,7 +34,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add data/events.json
+          git add data/events.json nfl-playoffs.ics
 
           git diff --staged --quiet || (
             git commit -m "Update playoff calendar"
