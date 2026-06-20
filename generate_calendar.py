@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timedelta
 
 from ics import Calendar, Event
@@ -23,6 +24,19 @@ for item in events:
     event.begin = start
     event.end = end
 
+    # Stable UID
+    uid_name = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        item["name"].lower()
+    ).strip("-")
+
+    event.uid = (
+        f"{uid_name}-"
+        f"{start.strftime('%Y%m%dT%H%M')}"
+    )
+
+    # Location
     location_parts = []
 
     if item["venue"]:
@@ -33,6 +47,7 @@ for item in events:
 
     event.location = ", ".join(location_parts)
 
+    # Description
     description = []
 
     if item["network"]:
