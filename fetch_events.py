@@ -12,8 +12,6 @@ current_year,
 current_year + 1
 ]
 
-playoff_events_found = False
-
 for season_year in candidate_years:
 
 ```
@@ -85,7 +83,6 @@ for date_range in date_ranges:
 
 if season_events:
     events = season_events
-    playoff_events_found = True
     print(f"Using postseason for season {season_year}")
     break
 ```
