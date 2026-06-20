@@ -32,7 +32,7 @@ for item in events:
 
     event.uid = (
         f"{uid_name}-"
-        f"{start.strftime('%Y%m%dT%H%M')}"
+        f"{item['id']}"
     )
 
     location_parts = []
