@@ -29,7 +29,6 @@ for date_range in date_ranges:
         competitions = event.get("competitions", [{}])
         competition = competitions[0]
 
-        # Use playoff round name when teams are TBD
         name = event.get("name", "NFL Playoff Game")
 
         notes = competition.get("notes", [])
@@ -59,6 +58,7 @@ for date_range in date_ranges:
             network = broadcasts[0].get("names", [""])[0]
 
         events.append({
+            "id": event.get("id"),
             "name": name,
             "date": date,
             "venue": venue,
