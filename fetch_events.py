@@ -22,12 +22,20 @@ for date_range in date_ranges:
     data = response.json()
 
     for event in data.get("events", []):
-        name = event.get("name", "NFL Playoff Game")
         date = event.get("date")
 
         competitions = event.get("competitions", [{}])
         competition = competitions[0]
 
+        # Better event name
+        name = event.get("name", "NFL Playoff Game")
+
+        if name == "TBD at TBD":
+            notes = competition.get("notes", [])
+            if notes:
+                name = notes[0].get("headline", name)
+
+        # Venue
         venue = (
             competition.get("venue", {})
             .get("fullName", "")
@@ -39,6 +47,7 @@ for date_range in date_ranges:
             .get("city", "")
         )
 
+        # Network
         broadcasts = event.get("broadcasts", [])
         network = ""
 
@@ -53,6 +62,8 @@ for date_range in date_ranges:
             "network": network,
             "promotion": "NFL"
         })
+
+events.sort(key=lambda x: x["date"])
 
 with open("data/events.json", "w") as f:
     json.dump(events, f, indent=2)
