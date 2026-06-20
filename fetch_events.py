@@ -1,14 +1,30 @@
 import json
+from datetime import datetime
+
 import requests
 
 events = []
 
-date_ranges = [
-    "20270113-20270119",
-    "20270120-20270126",
-    "20270127-20270202",
-    "20270210-20270216"
+current_year = datetime.utcnow().year
+
+candidate_years = [
+current_year,
+current_year + 1
 ]
+
+playoff_events_found = False
+
+for season_year in candidate_years:
+
+```
+date_ranges = [
+    f"{season_year + 1}0113-{season_year + 1}0119",
+    f"{season_year + 1}0120-{season_year + 1}0126",
+    f"{season_year + 1}0127-{season_year + 1}0202",
+    f"{season_year + 1}0210-{season_year + 1}0216"
+]
+
+season_events = []
 
 for date_range in date_ranges:
 
@@ -57,7 +73,7 @@ for date_range in date_ranges:
         if broadcasts:
             network = broadcasts[0].get("names", [""])[0]
 
-        events.append({
+        season_events.append({
             "id": event.get("id"),
             "name": name,
             "date": date,
@@ -67,9 +83,16 @@ for date_range in date_ranges:
             "promotion": "NFL"
         })
 
+if season_events:
+    events = season_events
+    playoff_events_found = True
+    print(f"Using postseason for season {season_year}")
+    break
+```
+
 events.sort(key=lambda x: x["date"])
 
 with open("data/events.json", "w") as f:
-    json.dump(events, f, indent=2)
+json.dump(events, f, indent=2)
 
 print(f"Generated {len(events)} events")
