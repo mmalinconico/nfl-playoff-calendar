@@ -1,6 +1,7 @@
 # NFL Playoff Calendar
 
 An automatically updating iCalendar (.ics) subscription for the NFL postseason.
+Subscribe once and your calendar stays automatically up to date.
 
 ## Included Events
 
