@@ -1,8 +1,8 @@
 # NFL Playoff Calendar
 
-An automatically updating iCalendar (.ics) subscription for the NFL postseason.
+An automatically updating iCalendar (`.ics`) subscription for the NFL postseason.
 
-Subscribe once and your calendar stays automatically up to date.
+Subscribe once, and your calendar stays up to date as playoff matchups, kickoff times, venues, cities, and television networks are announced.
 
 ## Included Events
 
@@ -12,31 +12,34 @@ Subscribe once and your calendar stays automatically up to date.
 - NFC Championship Game
 - Super Bowl
 
-As playoff teams, kickoff times, venues, cities, and television networks are announced, the calendar updates automatically.
-
-## Features
-
-- Automatically retrieves NFL postseason schedule information from ESPN.
-- Checks monthly during the offseason (March through November).
-- Updates every 4 hours during playoff season (December through February).
-- Generates a standards-compliant iCalendar (.ics) subscription.
-- Hosted with GitHub Pages.
-- Compatible with Apple Calendar, Google Calendar, Microsoft Outlook, and other apps that support calendar subscriptions.
+Completed games remain on the calendar for approximately seven days before being removed.
 
 ## Subscribe
 
-Subscribe using the following URL:
+Use this subscription URL:
 
-```
 https://mmalinconico.github.io/nfl-playoff-calendar/nfl-playoffs.ics
-```
+
+## Features
+
+- Retrieves NFL postseason schedule information from ESPN.
+- Updates every four hours during playoff season, from December through February.
+- Checks monthly during the offseason, from March through November.
+- Automatically updates event names, kickoff times, venues, cities, and television networks as information becomes available.
+- Retains completed games for seven days.
+- Generates a standards-compliant iCalendar (`.ics`) subscription.
+- Hosted with GitHub Pages.
 
 ## Supported Calendar Apps
 
 - Apple Calendar
 - Google Calendar
 - Microsoft Outlook
-- Any application that supports iCalendar (.ics) subscriptions
+- Any application that supports iCalendar subscriptions
+
+## How It Works
+
+A scheduled GitHub Actions workflow retrieves the latest postseason data, rebuilds the calendar file, and publishes any changes through GitHub Pages.
 
 ## Data Source
 
@@ -44,6 +47,6 @@ https://mmalinconico.github.io/nfl-playoff-calendar/nfl-playoffs.ics
 
 ## Disclaimer
 
-This project is an unofficial fan-created calendar.
+This is an unofficial, fan-created calendar and is not affiliated with the NFL or ESPN.
 
-Event information is sourced from publicly available data and is automatically updated. Playoff schedules, kickoff times, venues, television assignments, and participating teams are subject to change.
+Event information is sourced from publicly available data and updated automatically. Playoff schedules, kickoff times, venues, television assignments, and participating teams are subject to change.
