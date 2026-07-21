@@ -1,93 +1,195 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import requests
 
-events = []
+EVENTS_FILE = Path("data/events.json")
+PAST_EVENT_RETENTION_DAYS = 7
 
-current_year = datetime.utcnow().year
+HEADERS = {
+    "User-Agent": "NFLPlayoffCalendarBot/1.0 (personal hobby calendar)"
+}
 
-candidate_years = [
-    current_year,
-    current_year + 1
+
+def load_previous_events():
+    if not EVENTS_FILE.exists():
+        return []
+
+    try:
+        with EVENTS_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, list):
+            return data
+
+    except (json.JSONDecodeError, OSError) as error:
+        print(f"Could not load previous events: {error}")
+
+    return []
+
+
+def parse_event_datetime(date_text):
+    if not date_text:
+        return None
+
+    try:
+        return datetime.fromisoformat(
+            date_text.replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+now = datetime.now(timezone.utc)
+current_year = now.year
+
+# NFL seasons begin in one calendar year and their playoffs
+# occur in January and February of the following calendar year.
+#
+# January/February 2027 still belong to the 2026 NFL season.
+if now.month in (1, 2):
+    season_year = current_year - 1
+else:
+    season_year = current_year
+
+postseason_year = season_year + 1
+
+print(f"Using postseason for NFL season {season_year}")
+print(f"Searching January-February {postseason_year}")
+
+date_ranges = [
+    f"{postseason_year}0113-{postseason_year}0119",
+    f"{postseason_year}0120-{postseason_year}0126",
+    f"{postseason_year}0127-{postseason_year}0202",
+    f"{postseason_year}0210-{postseason_year}0216"
 ]
 
-for season_year in candidate_years:
+previous_events = load_previous_events()
+events = []
 
-    date_ranges = [
-        f"{season_year + 1}0113-{season_year + 1}0119",
-        f"{season_year + 1}0120-{season_year + 1}0126",
-        f"{season_year + 1}0127-{season_year + 1}0202",
-        f"{season_year + 1}0210-{season_year + 1}0216"
-    ]
+seen_event_ids = set()
 
-    season_events = []
+for date_range in date_ranges:
+    url = (
+        "https://site.api.espn.com/apis/site/v2/"
+        f"sports/football/nfl/scoreboard?dates={date_range}"
+    )
 
-    for date_range in date_ranges:
+    response = requests.get(
+        url,
+        headers=HEADERS,
+        timeout=30
+    )
+    response.raise_for_status()
 
-        url = (
-            "https://site.api.espn.com/apis/site/v2/"
-            f"sports/football/nfl/scoreboard?dates={date_range}"
+    data = response.json()
+
+    for event in data.get("events", []):
+        event_id = event.get("id")
+
+        if not event_id or event_id in seen_event_ids:
+            continue
+
+        date_text = event.get("date")
+
+        competitions = event.get("competitions", [])
+        competition = competitions[0] if competitions else {}
+
+        name = event.get("name", "NFL Playoff Game")
+
+        notes = competition.get("notes", [])
+
+        if (
+            name == "TBD at TBD"
+            and notes
+            and notes[0].get("headline")
+        ):
+            name = notes[0]["headline"]
+
+        venue_data = competition.get("venue", {})
+
+        venue = venue_data.get("fullName", "")
+
+        city = (
+            venue_data
+            .get("address", {})
+            .get("city", "")
         )
 
-        response = requests.get(url)
-        response.raise_for_status()
+        broadcasts = competition.get("broadcasts", [])
+        network = ""
 
-        data = response.json()
+        if broadcasts:
+            names = broadcasts[0].get("names", [])
 
-        for event in data.get("events", []):
+            if names:
+                network = names[0]
 
-            date = event.get("date")
+        events.append({
+            "id": event_id,
+            "name": name,
+            "date": date_text,
+            "venue": venue,
+            "city": city,
+            "network": network,
+            "promotion": "NFL"
+        })
 
-            competitions = event.get("competitions", [{}])
-            competition = competitions[0]
+        seen_event_ids.add(event_id)
 
-            name = event.get("name", "NFL Playoff Game")
+# -------------------
+# Retain recently completed or temporarily missing games
+# -------------------
 
-            notes = competition.get("notes", [])
+retention_cutoff = now - timedelta(
+    days=PAST_EVENT_RETENTION_DAYS
+)
 
-            if (
-                name == "TBD at TBD"
-                and notes
-                and "headline" in notes[0]
-            ):
-                name = notes[0]["headline"]
+retained_count = 0
 
-            venue = (
-                competition.get("venue", {})
-                .get("fullName", "")
-            )
+for previous_event in previous_events:
+    event_id = previous_event.get("id")
 
-            city = (
-                competition.get("venue", {})
-                .get("address", {})
-                .get("city", "")
-            )
+    if not event_id or event_id in seen_event_ids:
+        continue
 
-            broadcasts = event.get("broadcasts", [])
-            network = ""
+    event_datetime = parse_event_datetime(
+        previous_event.get("date")
+    )
 
-            if broadcasts:
-                network = broadcasts[0].get("names", [""])[0]
+    if event_datetime is None:
+        continue
 
-            season_events.append({
-                "id": event.get("id"),
-                "name": name,
-                "date": date,
-                "venue": venue,
-                "city": city,
-                "network": network,
-                "promotion": "NFL"
-            })
+    # Keep future events if ESPN temporarily omits them.
+    # Keep completed events for seven days after kickoff.
+    if event_datetime >= retention_cutoff:
+        events.append(previous_event)
+        seen_event_ids.add(event_id)
+        retained_count += 1
 
-    if season_events:
-        events = season_events
-        print(f"Using postseason for season {season_year}")
-        break
+events.sort(
+    key=lambda event: (
+        event.get("date", ""),
+        event.get("id", "")
+    )
+)
 
-events.sort(key=lambda x: x["date"])
+EVENTS_FILE.parent.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
-with open("data/events.json", "w") as f:
-    json.dump(events, f, indent=2)
+with EVENTS_FILE.open(
+    "w",
+    encoding="utf-8"
+) as f:
+    json.dump(
+        events,
+        f,
+        indent=2,
+        ensure_ascii=False
+    )
 
+print(f"Retained {retained_count} missing recent events")
 print(f"Generated {len(events)} events")
