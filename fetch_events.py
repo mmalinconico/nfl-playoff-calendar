@@ -39,6 +39,13 @@ OFFICIAL_FUTURE_SUPER_BOWLS = [
 ]
 
 
+def normalize_id(value):
+    if value is None:
+        return ""
+
+    return str(value)
+
+
 def load_previous_events():
     if not EVENTS_FILE.exists():
         return []
@@ -149,9 +156,11 @@ else:
     season_year = current_year
 
 postseason_year = season_year + 1
+
 current_super_bowl_roman = super_bowl_roman_for_year(
     postseason_year
 )
+
 current_official_super_bowl = next(
     (
         item
@@ -175,7 +184,9 @@ date_ranges = [
 
 previous_events = load_previous_events()
 events = []
+
 seen_event_ids = set()
+seen_espn_ids = set()
 
 for date_range in date_ranges:
     url = (
@@ -193,9 +204,15 @@ for date_range in date_ranges:
     data = response.json()
 
     for event in data.get("events", []):
-        espn_event_id = event.get("id")
+        espn_event_id = normalize_id(
+            event.get("id")
+        )
 
         if not espn_event_id:
+            continue
+
+        # ESPN may return the same game in overlapping date ranges.
+        if espn_event_id in seen_espn_ids:
             continue
 
         date_text = event.get("date")
@@ -217,11 +234,14 @@ for date_range in date_ranges:
         event_id = espn_event_id
         event_uid = ""
 
-        event_calendar_date = parse_event_datetime(date_text)
+        event_datetime = parse_event_datetime(
+            date_text
+        )
+
         matches_official_super_bowl_date = (
             current_official_super_bowl is not None
-            and event_calendar_date is not None
-            and event_calendar_date.date().isoformat()
+            and event_datetime is not None
+            and event_datetime.date().isoformat()
             == current_official_super_bowl["date"]
         )
 
@@ -235,6 +255,7 @@ for date_range in date_ranges:
             event_id = super_bowl_event_id(
                 current_super_bowl_roman
             )
+
             event_uid = super_bowl_uid(
                 current_super_bowl_roman
             )
@@ -276,7 +297,9 @@ for date_range in date_ranges:
             calendar_event["uid"] = event_uid
 
         events.append(calendar_event)
+
         seen_event_ids.add(event_id)
+        seen_espn_ids.add(espn_event_id)
 
 # -------------------
 # Retain recently completed or temporarily missing ESPN games
@@ -287,17 +310,42 @@ retention_cutoff = now - timedelta(
 )
 
 retained_count = 0
+duplicate_legacy_count = 0
 
 for previous_event in previous_events:
-    event_id = previous_event.get("id")
+    event_id = normalize_id(
+        previous_event.get("id")
+    )
 
-    if not event_id or event_id in seen_event_ids:
+    if not event_id:
         continue
 
-    # Official future placeholders are regenerated from the audited list
-    # below. Do not retain a stale placeholder if its date is corrected
-    # or the entry is removed from that list.
-    if previous_event.get("source") == "official-future-super-bowl":
+    if event_id in seen_event_ids:
+        continue
+
+    # Older versions of the calendar used the raw ESPN event ID
+    # as the Super Bowl event ID. The current version uses a stable
+    # Super Bowl ID instead. Skip the old entry when the same ESPN
+    # game has already been added under its new stable ID.
+    previous_espn_id = normalize_id(
+        previous_event.get("espn_id")
+        or previous_event.get("id")
+    )
+
+    if (
+        previous_espn_id
+        and previous_espn_id in seen_espn_ids
+    ):
+        duplicate_legacy_count += 1
+        continue
+
+    # Official future placeholders are regenerated from the audited
+    # list below. Do not retain a stale placeholder if its date is
+    # corrected or the entry is removed from that list.
+    if (
+        previous_event.get("source")
+        == "official-future-super-bowl"
+    ):
         continue
 
     event_datetime = parse_event_datetime(
@@ -312,6 +360,10 @@ for previous_event in previous_events:
     if event_datetime >= retention_cutoff:
         events.append(previous_event)
         seen_event_ids.add(event_id)
+
+        if previous_espn_id:
+            seen_espn_ids.add(previous_espn_id)
+
         retained_count += 1
 
 # -------------------
@@ -342,7 +394,10 @@ for super_bowl in OFFICIAL_FUTURE_SUPER_BOWLS:
         "date": super_bowl["date"],
         "venue": super_bowl["venue"],
         "city": super_bowl["city"],
-        "network": super_bowl.get("network", "TBA"),
+        "network": super_bowl.get(
+            "network",
+            "TBA",
+        ),
         "promotion": "NFL",
         "all_day": True,
         "status": "Kickoff time TBA",
@@ -377,5 +432,6 @@ with EVENTS_FILE.open(
     )
 
 print(f"Retained {retained_count} missing recent events")
+print(f"Removed {duplicate_legacy_count} legacy duplicates")
 print(f"Added {placeholder_count} official future Super Bowls")
 print(f"Generated {len(events)} events")
