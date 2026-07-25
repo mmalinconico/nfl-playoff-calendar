@@ -6,7 +6,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872910"
   },
   {
     "id": "401872911",
@@ -15,7 +17,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872911"
   },
   {
     "id": "401872912",
@@ -24,7 +28,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872912"
   },
   {
     "id": "401872913",
@@ -33,7 +39,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872913"
   },
   {
     "id": "401872914",
@@ -42,7 +50,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872914"
   },
   {
     "id": "401872915",
@@ -51,7 +61,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872915"
   },
   {
     "id": "401872916",
@@ -60,7 +72,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872916"
   },
   {
     "id": "401872917",
@@ -69,7 +83,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872917"
   },
   {
     "id": "401872918",
@@ -78,7 +94,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872918"
   },
   {
     "id": "401872919",
@@ -87,7 +105,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872919"
   },
   {
     "id": "401872920",
@@ -96,7 +116,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872920"
   },
   {
     "id": "401872921",
@@ -105,7 +127,9 @@
     "venue": "",
     "city": "",
     "network": "",
-    "promotion": "NFL"
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401872921"
   },
   {
     "id": "401873270",
@@ -115,5 +139,31 @@
     "city": "Inglewood",
     "network": "ESPN",
     "promotion": "NFL"
+  },
+  {
+    "id": "super-bowl-lxi",
+    "name": "Super Bowl LXI",
+    "date": "2027-02-14T23:30Z",
+    "venue": "SoFi Stadium",
+    "city": "Inglewood",
+    "network": "ESPN",
+    "promotion": "NFL",
+    "source": "espn",
+    "espn_id": "401873270",
+    "uid": "super-bowl-lxi@nfl-playoff-calendar"
+  },
+  {
+    "id": "super-bowl-lxii",
+    "uid": "super-bowl-lxii@nfl-playoff-calendar",
+    "name": "Super Bowl LXII",
+    "date": "2028-02-13",
+    "venue": "Mercedes-Benz Stadium",
+    "city": "Atlanta, Georgia",
+    "network": "TBA",
+    "promotion": "NFL",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "source": "official-future-super-bowl",
+    "source_url": "https://www.mercedesbenzstadium.com/events/super-bowl-lxii"
   }
 ]
