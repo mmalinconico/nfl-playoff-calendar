@@ -88,12 +88,4 @@ LOCATION:Mercedes-Benz Stadium\, Atlanta\, Georgia
 SUMMARY:Super Bowl LXII
 UID:super-bowl-lxii@nfl-playoff-calendar
 END:VEVENT
-BEGIN:VEVENT
-DESCRIPTION:Network: ESPN
-DTEND:20270215T033000Z
-LOCATION:SoFi Stadium\, Inglewood
-DTSTART:20270214T233000Z
-SUMMARY:Super Bowl LXI
-UID:super-bowl-lxi-401873270
-END:VEVENT
 END:VCALENDAR
