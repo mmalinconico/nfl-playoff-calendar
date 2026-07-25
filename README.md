@@ -11,6 +11,7 @@ Subscribe once, and your calendar stays up to date as playoff matchups, kickoff 
 - AFC Championship Game
 - NFC Championship Game
 - Super Bowl
+- Officially dated future Super Bowls
 
 Completed games remain on the calendar for approximately seven days before being removed.
 
@@ -22,7 +23,8 @@ https://mmalinconico.github.io/nfl-playoff-calendar/nfl-playoffs.ics
 
 ## Features
 
-- Retrieves NFL postseason schedule information from ESPN.
+- Retrieves active NFL postseason schedule information from ESPN.
+- Includes future Super Bowls once an exact date has been confirmed by an official source.
 - Updates every four hours during playoff season, from December through February.
 - Checks monthly during the offseason, from March through November.
 - Automatically updates event names, kickoff times, venues, cities, and television networks as information becomes available.
@@ -39,14 +41,16 @@ https://mmalinconico.github.io/nfl-playoff-calendar/nfl-playoffs.ics
 
 ## How It Works
 
-A scheduled GitHub Actions workflow retrieves the latest postseason data, rebuilds the calendar file, and publishes any changes through GitHub Pages.
+A scheduled GitHub Actions workflow retrieves the latest postseason data, adds officially dated future Super Bowls, rebuilds the calendar file, and publishes any changes through GitHub Pages.
 
-## Data Source
+## Data Sources
 
 - ESPN Scoreboard API
+- NFL Football Operations
+- Official Super Bowl host and stadium sources
 
 ## Disclaimer
 
-This is an unofficial, fan-created calendar and is not affiliated with the NFL or ESPN.
+This is an unofficial, fan-created calendar and is not affiliated with the NFL, ESPN, or any Super Bowl host organization.
 
-Event information is sourced from publicly available data and updated automatically. Playoff schedules, kickoff times, venues, television assignments, and participating teams are subject to change.
+Event information is sourced from publicly available data. Playoff schedules, kickoff times, venues, television assignments, and participating teams are subject to change.
