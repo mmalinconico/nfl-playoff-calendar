@@ -132,15 +132,6 @@
     "espn_id": "401872921"
   },
   {
-    "id": "401873270",
-    "name": "Super Bowl LXI",
-    "date": "2027-02-14T23:30Z",
-    "venue": "SoFi Stadium",
-    "city": "Inglewood",
-    "network": "ESPN",
-    "promotion": "NFL"
-  },
-  {
     "id": "super-bowl-lxi",
     "name": "Super Bowl LXI",
     "date": "2027-02-14T23:30Z",
