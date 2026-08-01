@@ -2,134 +2,182 @@
   {
     "id": "401872910",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-16T05:00Z",
+    "date": "2027-01-16",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872910"
+    "espn_id": "401872910",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872910",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872911",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-16T05:00Z",
+    "date": "2027-01-16",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872911"
+    "espn_id": "401872911",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872911",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872912",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-17T05:00Z",
+    "date": "2027-01-17",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872912"
+    "espn_id": "401872912",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872912",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872913",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-17T05:00Z",
+    "date": "2027-01-17",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872913"
+    "espn_id": "401872913",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872913",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872914",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-17T05:00Z",
+    "date": "2027-01-17",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872914"
+    "espn_id": "401872914",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872914",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872915",
     "name": "Wild Card Playoffs",
-    "date": "2027-01-18T05:00Z",
+    "date": "2027-01-18",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872915"
+    "espn_id": "401872915",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "wild-card-playoffs-401872915",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872916",
     "name": "Divisional Playoffs",
-    "date": "2027-01-23T05:00Z",
+    "date": "2027-01-23",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872916"
+    "espn_id": "401872916",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "divisional-playoffs-401872916",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872917",
     "name": "Divisional Playoffs",
-    "date": "2027-01-23T05:00Z",
+    "date": "2027-01-23",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872917"
+    "espn_id": "401872917",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "divisional-playoffs-401872917",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872918",
     "name": "Divisional Playoffs",
-    "date": "2027-01-24T05:00Z",
+    "date": "2027-01-24",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872918"
+    "espn_id": "401872918",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "divisional-playoffs-401872918",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872919",
     "name": "Divisional Playoffs",
-    "date": "2027-01-24T05:00Z",
+    "date": "2027-01-24",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872919"
+    "espn_id": "401872919",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "divisional-playoffs-401872919",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872920",
     "name": "NFC Championship",
-    "date": "2027-01-31T05:00Z",
+    "date": "2027-01-31",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872920"
+    "espn_id": "401872920",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "nfc-championship-401872920",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "401872921",
     "name": "AFC Championship",
-    "date": "2027-01-31T05:00Z",
+    "date": "2027-01-31",
     "venue": "",
     "city": "",
     "network": "",
     "promotion": "NFL",
     "source": "espn",
-    "espn_id": "401872921"
+    "espn_id": "401872921",
+    "all_day": true,
+    "status": "Kickoff time TBA",
+    "uid": "afc-championship-401872921",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "super-bowl-lxi",
@@ -137,11 +185,12 @@
     "date": "2027-02-14T23:30Z",
     "venue": "SoFi Stadium",
     "city": "Inglewood",
-    "network": "ESPN",
+    "network": "ESPN / ABC",
     "promotion": "NFL",
     "source": "espn",
     "espn_id": "401873270",
-    "uid": "super-bowl-lxi@nfl-playoff-calendar"
+    "uid": "super-bowl-lxi@nfl-playoff-calendar",
+    "dtstamp": "20260801T034338Z"
   },
   {
     "id": "super-bowl-lxii",
@@ -155,6 +204,7 @@
     "all_day": true,
     "status": "Kickoff time TBA",
     "source": "official-future-super-bowl",
-    "source_url": "https://www.mercedesbenzstadium.com/events/super-bowl-lxii"
+    "source_url": "https://www.mercedesbenzstadium.com/events/super-bowl-lxii",
+    "dtstamp": "20260801T034338Z"
   }
 ]
