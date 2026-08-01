@@ -10,6 +10,13 @@ on:
     # Every 4 hours during playoff season (December-February)
     - cron: '0 */4 * 12,1,2 *'
 
+permissions:
+  contents: write
+
+concurrency:
+  group: nfl-playoff-calendar-update
+  cancel-in-progress: false
+
 jobs:
   update-calendar:
     runs-on: ubuntu-latest
@@ -22,6 +29,9 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
+      - name: Validate Python files
+        run: python -m py_compile fetch_events.py generate_calendar.py
 
       - name: Install dependencies
         run: pip install -r requirements.txt
