@@ -8,8 +8,7 @@ Subscribe once, and your calendar stays up to date as playoff matchups, kickoff 
 
 - Wild Card Round
 - Divisional Round
-- AFC Championship Game
-- NFC Championship Game
+- AFC/NFC Championship Games
 - Super Bowl
 - Officially dated future Super Bowls
 
