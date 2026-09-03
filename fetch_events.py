@@ -586,6 +586,8 @@ def sensible_core_name(
 
         if cleaned and cleaned.lower() not in {
             "tbd at tbd",
+            "tbd @ tbd",
+            "tbd vs tbd",
             "tbd",
         }:
             return cleaned
