@@ -5,14 +5,25 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 EVENTS_FILE = Path("data/events.json")
 PAST_EVENT_RETENTION_DAYS = 7
 CALENDAR_TIMEZONE = ZoneInfo("America/New_York")
-REQUEST_WINDOW_DAYS = 14
+POSTSEASON_SEASON_TYPE = 3
+POSTSEASON_WEEK_FALLBACK = range(1, 6)
 
 HEADERS = {
-    "User-Agent": "NFLPlayoffCalendarBot/1.0 (personal hobby calendar)"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/152.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.espn.com/nfl/schedule",
+    "Origin": "https://www.espn.com",
 }
 
 # Add a future Super Bowl here only after an official source publishes
@@ -281,57 +292,155 @@ def is_placeholder_time(event_datetime, competition):
     )
 
 
-def build_date_ranges(postseason_year):
-    start = date(postseason_year, 1, 1)
-    end = date(postseason_year, 3, 31)
-    ranges = []
-    window_start = start
+def build_http_session():
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        raise_on_status=False,
+    )
 
-    while window_start <= end:
-        window_end = min(
-            window_start + timedelta(
-                days=REQUEST_WINDOW_DAYS - 1
-            ),
-            end,
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
+
+
+def validate_scoreboard_response(data, label):
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"ESPN returned an unexpected response for {label}."
         )
 
-        ranges.append(
-            f"{window_start.strftime('%Y%m%d')}-"
-            f"{window_end.strftime('%Y%m%d')}"
+    if "events" not in data or not isinstance(data["events"], list):
+        raise RuntimeError(
+            f"ESPN response is missing an events list for {label}."
         )
 
-        window_start = window_end + timedelta(days=1)
-
-    return ranges
+    return data["events"]
 
 
-def fetch_scoreboard(date_range):
+def fetch_scoreboard_request(session, params, label):
     url = (
         "https://site.api.espn.com/apis/site/v2/"
         "sports/football/nfl/scoreboard"
     )
 
-    response = requests.get(
+    response = session.get(
         url,
-        params={"dates": date_range},
-        headers=HEADERS,
+        params=params,
         timeout=30,
     )
+
+    if response.status_code == 403:
+        raise PermissionError(
+            f"ESPN returned 403 Forbidden for {label}: "
+            f"{response.url}"
+        )
+
     response.raise_for_status()
 
-    data = response.json()
-
-    if not isinstance(data, dict):
+    try:
+        data = response.json()
+    except ValueError as error:
         raise RuntimeError(
-            f"ESPN returned an unexpected response for {date_range}."
+            f"ESPN returned invalid JSON for {label}."
+        ) from error
+
+    return validate_scoreboard_response(data, label)
+
+
+def fetch_postseason_scoreboard(postseason_year):
+    session = build_http_session()
+
+    # Prefer one postseason-season request. This avoids hard-coded
+    # January/February date windows and remains resilient if the NFL
+    # shifts the postseason calendar in a future season.
+    primary_params = {
+        "dates": str(postseason_year),
+        "seasontype": POSTSEASON_SEASON_TYPE,
+        "limit": 1000,
+    }
+
+    try:
+        events = fetch_scoreboard_request(
+            session,
+            primary_params,
+            f"{postseason_year} postseason",
+        )
+        print("Fetched ESPN postseason using season-wide query")
+        return events
+
+    except PermissionError as primary_error:
+        print(primary_error)
+        print(
+            "Season-wide ESPN request was forbidden; "
+            "trying postseason-week queries."
         )
 
-    if "events" not in data or not isinstance(data["events"], list):
+    # ESPN has occasionally rejected one scoreboard query shape while
+    # accepting another. Fall back to postseason week queries rather than
+    # weakening validation or writing an empty calendar.
+    combined_events = []
+    seen_ids = set()
+    successful_weeks = 0
+    forbidden_weeks = 0
+
+    for week in POSTSEASON_WEEK_FALLBACK:
+        params = {
+            "dates": str(postseason_year),
+            "seasontype": POSTSEASON_SEASON_TYPE,
+            "week": week,
+            "limit": 100,
+        }
+        label = f"{postseason_year} postseason week {week}"
+
+        try:
+            week_events = fetch_scoreboard_request(
+                session,
+                params,
+                label,
+            )
+            successful_weeks += 1
+        except PermissionError as error:
+            print(error)
+            forbidden_weeks += 1
+            continue
+
+        for event in week_events:
+            event_id = normalize_id(event.get("id"))
+
+            if event_id and event_id in seen_ids:
+                continue
+
+            combined_events.append(event)
+
+            if event_id:
+                seen_ids.add(event_id)
+
+    if successful_weeks == 0:
         raise RuntimeError(
-            f"ESPN response is missing an events list for {date_range}."
+            "ESPN rejected both the season-wide postseason request "
+            "and every postseason-week fallback request with 403 "
+            "Forbidden. Aborting without changing the calendar."
         )
 
-    return data["events"]
+    if forbidden_weeks:
+        print(
+            f"Warning: {forbidden_weeks} postseason-week ESPN "
+            "requests were forbidden, but at least one fallback "
+            "request succeeded."
+        )
+
+    print("Fetched ESPN postseason using week-query fallback")
+    return combined_events
 
 
 def legacy_uid_for_event(event):
@@ -630,144 +739,143 @@ def main():
     events = []
     seen_raw_espn_ids = set()
 
-    for date_range in build_date_ranges(
+    for raw_event in fetch_postseason_scoreboard(
         postseason_year
     ):
-        for raw_event in fetch_scoreboard(date_range):
-            espn_event_id = normalize_id(
-                raw_event.get("id")
+        espn_event_id = normalize_id(
+            raw_event.get("id")
+        )
+
+        if not espn_event_id:
+            continue
+
+        if espn_event_id in seen_raw_espn_ids:
+            continue
+
+        competitions = raw_event.get(
+            "competitions",
+            [],
+        )
+        competition = (
+            competitions[0]
+            if competitions
+            and isinstance(competitions[0], dict)
+            else {}
+        )
+
+        if not is_postseason_event(
+            raw_event,
+            competition,
+        ):
+            continue
+
+        seen_raw_espn_ids.add(espn_event_id)
+
+        date_text = raw_event.get("date", "")
+        event_datetime = parse_event_datetime(
+            date_text
+        )
+
+        if event_datetime is None:
+            raise RuntimeError(
+                "ESPN event has an invalid date: "
+                f"{espn_event_id}"
             )
 
-            if not espn_event_id:
-                continue
+        name = raw_event.get(
+            "name",
+            "NFL Playoff Game",
+        )
+        notes = competition.get("notes", [])
 
-            if espn_event_id in seen_raw_espn_ids:
-                continue
+        if name == "TBD at TBD":
+            for note in notes:
+                if (
+                    isinstance(note, dict)
+                    and note.get("headline")
+                ):
+                    name = note["headline"]
+                    break
 
-            competitions = raw_event.get(
-                "competitions",
-                [],
-            )
-            competition = (
-                competitions[0]
-                if competitions
-                and isinstance(competitions[0], dict)
-                else {}
-            )
+        event_id = espn_event_id
+        event_uid = ""
 
-            if not is_postseason_event(
-                raw_event,
-                competition,
-            ):
-                continue
+        matches_official_super_bowl_date = (
+            current_official_super_bowl is not None
+            and event_datetime.astimezone(
+                CALENDAR_TIMEZONE
+            ).date().isoformat()
+            == current_official_super_bowl["date"]
+        )
 
-            seen_raw_espn_ids.add(espn_event_id)
-
-            date_text = raw_event.get("date", "")
-            event_datetime = parse_event_datetime(
-                date_text
-            )
-
-            if event_datetime is None:
-                raise RuntimeError(
-                    "ESPN event has an invalid date: "
-                    f"{espn_event_id}"
+        if (
+            current_super_bowl_roman
+            and (
+                is_super_bowl_event(
+                    raw_event,
+                    competition,
                 )
-
-            name = raw_event.get(
-                "name",
-                "NFL Playoff Game",
+                or matches_official_super_bowl_date
             )
-            notes = competition.get("notes", [])
-
-            if name == "TBD at TBD":
-                for note in notes:
-                    if (
-                        isinstance(note, dict)
-                        and note.get("headline")
-                    ):
-                        name = note["headline"]
-                        break
-
-            event_id = espn_event_id
-            event_uid = ""
-
-            matches_official_super_bowl_date = (
-                current_official_super_bowl is not None
-                and event_datetime.astimezone(
-                    CALENDAR_TIMEZONE
-                ).date().isoformat()
-                == current_official_super_bowl["date"]
-            )
-
-            if (
+        ):
+            event_id = super_bowl_event_id(
                 current_super_bowl_roman
-                and (
-                    is_super_bowl_event(
-                        raw_event,
-                        competition,
-                    )
-                    or matches_official_super_bowl_date
-                )
-            ):
-                event_id = super_bowl_event_id(
-                    current_super_bowl_roman
-                )
-                event_uid = super_bowl_uid(
-                    current_super_bowl_roman
-                )
-
-            venue_data = competition.get(
-                "venue",
-                {},
             )
-            venue = (
-                venue_data.get("fullName", "")
-                if isinstance(venue_data, dict)
-                else ""
-            )
-            city = ""
-
-            if isinstance(venue_data, dict):
-                address = venue_data.get("address", {})
-
-                if isinstance(address, dict):
-                    city = address.get("city", "")
-
-            all_day = is_placeholder_time(
-                event_datetime,
-                competition,
+            event_uid = super_bowl_uid(
+                current_super_bowl_roman
             )
 
-            if all_day:
-                stored_date = event_datetime.astimezone(
-                    CALENDAR_TIMEZONE
-                ).date().isoformat()
-            else:
-                stored_date = date_text
+        venue_data = competition.get(
+            "venue",
+            {},
+        )
+        venue = (
+            venue_data.get("fullName", "")
+            if isinstance(venue_data, dict)
+            else ""
+        )
+        city = ""
 
-            calendar_event = {
-                "id": event_id,
-                "name": name,
-                "date": stored_date,
-                "venue": venue,
-                "city": city,
-                "network": network_names(competition),
-                "promotion": "NFL",
-                "source": "espn",
-                "espn_id": espn_event_id,
-            }
+        if isinstance(venue_data, dict):
+            address = venue_data.get("address", {})
 
-            if all_day:
-                calendar_event["all_day"] = True
-                calendar_event["status"] = (
-                    "Kickoff time TBA"
-                )
+            if isinstance(address, dict):
+                city = address.get("city", "")
 
-            if event_uid:
-                calendar_event["uid"] = event_uid
+        all_day = is_placeholder_time(
+            event_datetime,
+            competition,
+        )
 
-            events.append(calendar_event)
+        if all_day:
+            stored_date = event_datetime.astimezone(
+                CALENDAR_TIMEZONE
+            ).date().isoformat()
+        else:
+            stored_date = date_text
+
+        calendar_event = {
+            "id": event_id,
+            "name": name,
+            "date": stored_date,
+            "venue": venue,
+            "city": city,
+            "network": network_names(competition),
+            "promotion": "NFL",
+            "source": "espn",
+            "espn_id": espn_event_id,
+        }
+
+        if all_day:
+            calendar_event["all_day"] = True
+            calendar_event["status"] = (
+                "Kickoff time TBA"
+            )
+
+        if event_uid:
+            calendar_event["uid"] = event_uid
+
+        events.append(calendar_event)
 
     events = deduplicate_events(events)
     validate_espn_result(
