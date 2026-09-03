@@ -592,8 +592,25 @@ def sensible_core_name(
         }:
             return cleaned
 
-    if previous_event and previous_event.get("name"):
-        return previous_event["name"]
+    previous_name = (
+        str(previous_event.get("name", "")).strip()
+        if previous_event
+        else ""
+    )
+
+    if previous_name and previous_name.lower() not in {
+        "tbd at tbd",
+        "tbd @ tbd",
+        "tbd vs tbd",
+        "tbd",
+    }:
+        return previous_name
+
+    previous_uid = (
+        str(previous_event.get("uid", "")).lower()
+        if previous_event
+        else ""
+    )
 
     if week == 1:
         return "Wild Card Playoffs"
@@ -602,6 +619,12 @@ def sensible_core_name(
         return "Divisional Playoffs"
 
     if week == 3:
+        if "nfc-championship" in previous_uid:
+            return "NFC Championship"
+
+        if "afc-championship" in previous_uid:
+            return "AFC Championship"
+
         return "Conference Championship"
 
     if week == 4 and current_super_bowl_roman:
