@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,32 +24,41 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Add a future Super Bowl here only after an official source publishes
-# the exact calendar date. Never infer the date from the usual NFL schedule.
-OFFICIAL_FUTURE_SUPER_BOWLS = [
-    {
-        "roman": "LXI",
-        "date": "2027-02-14",
-        "venue": "SoFi Stadium",
-        "city": "Inglewood, California",
-        "network": "CBS",
-        "source_url": (
-            "https://operations.nfl.com/"
-            "calendar-events/nfl-important-dates"
-        ),
-    },
-    {
-        "roman": "LXII",
-        "date": "2028-02-13",
-        "venue": "Mercedes-Benz Stadium",
-        "city": "Atlanta, Georgia",
-        "network": "FOX",
-        "source_url": (
-            "https://www.mercedesbenzstadium.com/"
-            "events/super-bowl-lxii"
-        ),
-    },
-]
+# Deep-future Super Bowls are discovered automatically instead of being
+# hard-coded. Wikipedia supplies structured discovery/metadata, but an exact
+# calendar date is published only when it is independently corroborated by a
+# conservative date source. This prevents inferred future dates from leaking
+# into the calendar before they are actually announced.
+FUTURE_SUPER_BOWL_LOOKAHEAD_YEARS = 8
+WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
+CBS_FUTURE_SUPER_BOWL_URL = (
+    "https://www.cbssports.com/nfl/news/"
+    "super-bowl-locations-dates-2027-2028/"
+)
+NFL_IMPORTANT_DATES_URL = (
+    "https://operations.nfl.com/"
+    "calendar-events/nfl-important-dates"
+)
+
+# Emergency-only escape hatch. Normal operation should leave this empty.
+# If a trusted source changes format and a confirmed future Super Bowl would
+# otherwise disappear, an entry can temporarily be added here using:
+# {
+#     "roman": "LXV",
+#     "date": "2031-02-09",
+#     "venue": "Example Stadium",
+#     "city": "Example City, State",
+#     "network": "TBA",
+#     "source_url": "https://trusted-source.example/...",
+# }
+MANUAL_FUTURE_SUPER_BOWL_OVERRIDES = []
+
+FUTURE_SUPER_BOWL_SOURCES = {
+    "future-super-bowl",
+    "official-future-super-bowl",
+    "wikipedia-future-super-bowl",
+    "manual-future-super-bowl",
+}
 
 CALENDAR_FIELDS = (
     "name",
@@ -182,6 +192,635 @@ def super_bowl_event_id(roman):
 
 def super_bowl_uid(roman):
     return f"super-bowl-{roman.lower()}@nfl-playoff-calendar"
+
+
+class TableTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self.current_row = None
+        self.current_cell = None
+        self.cell_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+
+        if tag == "tr":
+            self.current_row = []
+        elif tag in {"td", "th"} and self.current_row is not None:
+            self.current_cell = []
+            self.cell_depth = 1
+        elif self.current_cell is not None:
+            self.cell_depth += 1
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+
+        if self.current_cell is not None:
+            if tag in {"td", "th"} and self.cell_depth == 1:
+                cell_text = normalize_whitespace(
+                    " ".join(self.current_cell)
+                )
+                self.current_row.append(cell_text)
+                self.current_cell = None
+                self.cell_depth = 0
+                return
+
+            self.cell_depth = max(0, self.cell_depth - 1)
+
+        if tag == "tr" and self.current_row is not None:
+            if self.current_row:
+                self.rows.append(self.current_row)
+            self.current_row = None
+
+    def handle_data(self, data):
+        if self.current_cell is not None:
+            cleaned = str(data).strip()
+            if cleaned:
+                self.current_cell.append(cleaned)
+
+
+def normalize_whitespace(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def get_text(url, label, params=None):
+    response = requests.get(
+        url,
+        params=params,
+        headers=HEADERS,
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    text = response.text
+
+    if not text:
+        raise RuntimeError(f"{label} returned an empty response.")
+
+    return text
+
+
+def month_number(value):
+    cleaned = str(value or "").strip().lower().rstrip(".")
+    months = {
+        "jan": 1,
+        "january": 1,
+        "feb": 2,
+        "february": 2,
+        "mar": 3,
+        "march": 3,
+    }
+    return months.get(cleaned)
+
+
+def parse_future_date_text(value, expected_year):
+    text = normalize_whitespace(value)
+
+    if not text or re.search(r"\b(?:TBD|TBA)\b", text, re.I):
+        return None
+
+    match = re.search(
+        r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?)\.?\s+"
+        r"(\d{1,2})(?:,?\s+(20\d{2}))?\b",
+        text,
+        re.I,
+    )
+
+    if not match:
+        return None
+
+    month = month_number(match.group(1))
+    day = int(match.group(2))
+    year = int(match.group(3) or expected_year)
+
+    if year != expected_year or month is None:
+        return None
+
+    try:
+        parsed = date(year, month, day)
+    except ValueError:
+        return None
+
+    # The Super Bowl is played on Sunday. Treat any other weekday as a bad
+    # parse rather than accepting a suspicious deep-future date.
+    if parsed.weekday() != 6:
+        return None
+
+    return parsed.isoformat()
+
+
+def parse_wikipedia_venue_city(extract):
+    text = normalize_whitespace(extract)
+    stadium_terms = (
+        "Stadium",
+        "Superdome",
+        "Dome",
+        "Field",
+    )
+    stadium_pattern = "|".join(
+        re.escape(term) for term in stadium_terms
+    )
+    match = re.search(
+        rf"\bat\s+([^.;]+?(?:{stadium_pattern}))\s+in\s+"
+        r"([^.;]+?)(?:\.|;|$)",
+        text,
+        re.I,
+    )
+
+    if not match:
+        return "", ""
+
+    venue = normalize_whitespace(match.group(1))
+    city = normalize_whitespace(match.group(2)).rstrip(",")
+    return venue, city
+
+
+def parse_wikipedia_network(extract):
+    text = normalize_whitespace(extract)
+    match = re.search(
+        r"\b(?:televised|broadcast)(?: nationally)? by "
+        r"(?:both )?(.+?)(?:\.| as part of |, with | and will )",
+        text,
+        re.I,
+    )
+
+    if not match:
+        return "TBA"
+
+    network = normalize_whitespace(match.group(1))
+    network = re.sub(r"\s+and\s+", " / ", network, flags=re.I)
+
+    if len(network) > 80:
+        return "TBA"
+
+    return network
+
+
+def wikipedia_future_super_bowl_candidates():
+    today = calendar_today()
+    first_year = today.year
+
+    # Once the current year's Super Bowl has passed, begin with next year.
+    current_roman = super_bowl_roman_for_year(first_year)
+    current_event_id = (
+        super_bowl_event_id(current_roman)
+        if current_roman
+        else ""
+    )
+
+    previous_events = load_previous_events()
+    current_event = next(
+        (
+            event
+            for event in previous_events
+            if normalize_id(event.get("id")) == current_event_id
+        ),
+        None,
+    )
+
+    if (
+        current_event is not None
+        and (event_calendar_date(current_event) or date.min) < today
+    ):
+        first_year += 1
+
+    years = range(
+        first_year,
+        first_year + FUTURE_SUPER_BOWL_LOOKAHEAD_YEARS + 1,
+    )
+    title_to_year = {}
+
+    for super_bowl_year in years:
+        roman = super_bowl_roman_for_year(super_bowl_year)
+        if roman:
+            title_to_year[f"Super Bowl {roman}"] = super_bowl_year
+
+    params = {
+        "action": "query",
+        "format": "json",
+        "formatversion": 2,
+        "prop": "extracts",
+        "exintro": 1,
+        "explaintext": 1,
+        "redirects": 1,
+        "titles": "|".join(title_to_year),
+    }
+    response = requests.get(
+        WIKIPEDIA_API_URL,
+        params=params,
+        headers=HEADERS,
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    pages = data.get("query", {}).get("pages", [])
+
+    if not isinstance(pages, list):
+        raise RuntimeError(
+            "Wikipedia future Super Bowl lookup returned an unexpected response."
+        )
+
+    candidates = []
+
+    for page in pages:
+        if not isinstance(page, dict) or page.get("missing"):
+            continue
+
+        title = normalize_whitespace(page.get("title"))
+        expected_year = title_to_year.get(title)
+
+        if expected_year is None:
+            continue
+
+        roman_match = re.fullmatch(r"Super Bowl ([IVXLCDM]+)", title)
+        if not roman_match:
+            continue
+
+        roman = roman_match.group(1)
+        extract = str(page.get("extract", ""))
+        venue, city = parse_wikipedia_venue_city(extract)
+
+        candidates.append({
+            "roman": roman,
+            "year": expected_year,
+            "wikipedia_date": parse_future_date_text(
+                extract,
+                expected_year,
+            ),
+            "venue": venue,
+            "city": city,
+            "network": parse_wikipedia_network(extract),
+            "discovery_source_url": (
+                "https://en.wikipedia.org/wiki/"
+                f"Super_Bowl_{roman}"
+            ),
+        })
+
+    return candidates
+
+
+def cbs_verified_future_dates(candidates):
+    html = get_text(
+        CBS_FUTURE_SUPER_BOWL_URL,
+        "CBS Sports future Super Bowl page",
+    )
+    parser = TableTextParser()
+    parser.feed(html)
+    verified = {}
+    observed = set()
+
+    for candidate in candidates:
+        roman = candidate["roman"]
+        expected_year = candidate["year"]
+
+        for row in parser.rows:
+            row_text = " | ".join(row)
+
+            if not re.search(
+                rf"(?<![A-Z]){re.escape(roman)}(?![A-Z])",
+                row_text,
+                re.I,
+            ):
+                continue
+
+            if str(expected_year) not in row_text:
+                continue
+
+            observed.add(roman)
+            parsed_date = None
+
+            for cell in row:
+                parsed_date = parse_future_date_text(
+                    cell,
+                    expected_year,
+                )
+                if parsed_date:
+                    break
+
+            if parsed_date:
+                verified[roman] = parsed_date
+                break
+
+    # Fallback for article markup that does not expose semantic table cells.
+    # It remains conservative: the Roman numeral, year and exact date must all
+    # occur in a short local window. TBD/TBA rows produce no date.
+    plain = normalize_whitespace(re.sub(r"<[^>]+>", " ", html))
+
+    for candidate in candidates:
+        roman = candidate["roman"]
+
+        if roman in verified:
+            continue
+
+        expected_year = candidate["year"]
+        matches = list(
+            re.finditer(
+                rf"(?<![A-Z]){re.escape(roman)}(?![A-Z])",
+                plain,
+                re.I,
+            )
+        )
+
+        for match in matches:
+            window = plain[
+                match.start():match.start() + 260
+            ]
+
+            if str(expected_year) not in window:
+                continue
+
+            observed.add(roman)
+
+            if re.search(r"\b(?:TBD|TBA)\b", window, re.I):
+                continue
+
+            parsed_date = parse_future_date_text(
+                window,
+                expected_year,
+            )
+
+            if parsed_date:
+                verified[roman] = parsed_date
+                break
+
+    return verified, observed
+
+
+def nfl_operations_verified_future_dates(candidates):
+    html = get_text(
+        NFL_IMPORTANT_DATES_URL,
+        "NFL Football Operations important dates",
+    )
+    plain = normalize_whitespace(re.sub(r"<[^>]+>", " ", html))
+    verified = {}
+
+    for candidate in candidates:
+        roman = candidate["roman"]
+        expected_year = candidate["year"]
+        pattern = re.compile(
+            rf"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?)\.?\s+"
+            rf"(\d{{1,2}}).{{0,180}}Super Bowl\s+{re.escape(roman)}",
+            re.I,
+        )
+        match = pattern.search(plain)
+
+        if not match:
+            continue
+
+        parsed_date = parse_future_date_text(
+            f"{match.group(1)} {match.group(2)} {expected_year}",
+            expected_year,
+        )
+
+        if parsed_date:
+            verified[roman] = parsed_date
+
+    return verified
+
+
+def discover_verified_future_super_bowls(previous_events):
+    try:
+        candidates = wikipedia_future_super_bowl_candidates()
+        wikipedia_ok = True
+    except (requests.RequestException, ValueError, RuntimeError) as error:
+        print(f"Future Super Bowl discovery unavailable: {error}")
+        candidates = []
+        wikipedia_ok = False
+
+    cbs_dates = {}
+    cbs_observed = set()
+    cbs_ok = False
+
+    if candidates:
+        try:
+            cbs_dates, cbs_observed = cbs_verified_future_dates(
+                candidates
+            )
+            cbs_ok = bool(cbs_observed)
+
+            if not cbs_ok:
+                print(
+                    "CBS future Super Bowl page was reachable but its "
+                    "future-Super-Bowl table could not be parsed."
+                )
+        except (requests.RequestException, RuntimeError) as error:
+            print(f"CBS future Super Bowl verification unavailable: {error}")
+
+    nfl_dates = {}
+    nfl_ok = False
+
+    if candidates:
+        try:
+            nfl_dates = nfl_operations_verified_future_dates(
+                candidates
+            )
+            nfl_ok = True
+        except (requests.RequestException, RuntimeError) as error:
+            print(f"NFL Operations date verification unavailable: {error}")
+
+    verified_events = []
+
+    for candidate in candidates:
+        roman = candidate["roman"]
+        cbs_date = cbs_dates.get(roman)
+        nfl_date = nfl_dates.get(roman)
+        dates = {
+            value
+            for value in (cbs_date, nfl_date)
+            if value
+        }
+
+        if len(dates) > 1:
+            print(
+                f"Skipped Super Bowl {roman}: trusted sources disagree "
+                f"on date ({sorted(dates)})."
+            )
+            continue
+
+        verified_date = next(iter(dates), None)
+
+        if not verified_date:
+            wiki_date = candidate.get("wikipedia_date")
+            if wiki_date:
+                print(
+                    f"Discovered Super Bowl {roman} with Wikipedia date "
+                    f"{wiki_date}, but no independent exact-date "
+                    "confirmation; not publishing yet."
+                )
+            else:
+                print(
+                    f"Discovered Super Bowl {roman}, but exact date is "
+                    "not confirmed; not publishing yet."
+                )
+            continue
+
+        if candidate.get("wikipedia_date") not in {None, verified_date}:
+            print(
+                f"Skipped Super Bowl {roman}: Wikipedia date "
+                f"{candidate.get('wikipedia_date')} conflicts with "
+                f"verified date {verified_date}."
+            )
+            continue
+
+        if not candidate.get("venue") or not candidate.get("city"):
+            print(
+                f"Skipped Super Bowl {roman}: venue/city could not be "
+                "parsed from discovery source."
+            )
+            continue
+
+        source_url = (
+            NFL_IMPORTANT_DATES_URL
+            if nfl_date == verified_date
+            else CBS_FUTURE_SUPER_BOWL_URL
+        )
+
+        verified_events.append({
+            "roman": roman,
+            "date": verified_date,
+            "venue": candidate["venue"],
+            "city": candidate["city"],
+            "network": candidate.get("network") or "TBA",
+            "source_url": source_url,
+        })
+
+    # Emergency manual entries override discovered values by Roman numeral.
+    by_roman = {
+        item["roman"]: item
+        for item in verified_events
+    }
+
+    for override in MANUAL_FUTURE_SUPER_BOWL_OVERRIDES:
+        roman = normalize_whitespace(override.get("roman")).upper()
+        date_text = normalize_whitespace(override.get("date"))
+
+        try:
+            parsed_date = datetime.strptime(
+                date_text,
+                "%Y-%m-%d",
+            ).date()
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                f"Invalid manual future Super Bowl date: {override}"
+            )
+
+        expected_roman = super_bowl_roman_for_year(
+            parsed_date.year
+        )
+
+        if roman != expected_roman or parsed_date.weekday() != 6:
+            raise RuntimeError(
+                f"Invalid manual future Super Bowl override: {override}"
+            )
+
+        by_roman[roman] = {
+            "roman": roman,
+            "date": date_text,
+            "venue": normalize_whitespace(override.get("venue")),
+            "city": normalize_whitespace(override.get("city")),
+            "network": normalize_whitespace(
+                override.get("network") or "TBA"
+            ),
+            "source_url": normalize_whitespace(
+                override.get("source_url")
+            ),
+            "manual": True,
+        }
+
+    source_degraded = not wikipedia_ok or not cbs_ok
+
+    # If a previously verified future placeholder is not reproduced, retain
+    # it only when the sources appear degraded. Do not call the source
+    # degraded when CBS explicitly sees that Super Bowl but currently shows
+    # no exact date (for example, a row marked TBD).
+    verified_romans = set(by_roman)
+    candidate_romans = {item["roman"] for item in candidates}
+
+    for previous in previous_events:
+        if previous.get("source") not in FUTURE_SUPER_BOWL_SOURCES:
+            continue
+
+        previous_date = event_calendar_date(previous)
+        if previous_date is None or previous_date < calendar_today():
+            continue
+
+        event_id = normalize_id(previous.get("id"))
+        match = re.fullmatch(r"super-bowl-([ivxlcdm]+)", event_id, re.I)
+
+        if not match:
+            continue
+
+        roman = match.group(1).upper()
+
+        if roman in verified_romans:
+            continue
+
+        if roman in cbs_observed and roman not in cbs_dates and roman not in nfl_dates:
+            # The verifier explicitly has this game but no exact date.
+            continue
+
+        if roman not in candidate_romans or roman not in verified_romans:
+            source_degraded = True
+
+    return list(by_roman.values()), source_degraded, nfl_ok
+
+
+def future_super_bowl_calendar_event(super_bowl):
+    roman = super_bowl["roman"]
+    return {
+        "id": super_bowl_event_id(roman),
+        "uid": super_bowl_uid(roman),
+        "name": f"Super Bowl {roman}",
+        "date": super_bowl["date"],
+        "venue": super_bowl["venue"],
+        "city": super_bowl["city"],
+        "network": super_bowl.get("network", "TBA"),
+        "promotion": "NFL",
+        "all_day": True,
+        "status": "Kickoff time TBA",
+        "source": (
+            "manual-future-super-bowl"
+            if super_bowl.get("manual")
+            else "future-super-bowl"
+        ),
+        "source_url": super_bowl.get("source_url", ""),
+    }
+
+
+def retain_cached_future_super_bowls(
+    events,
+    previous_events,
+    excluded_event_ids,
+):
+    current_ids = {
+        normalize_id(event.get("id"))
+        for event in events
+    }
+    retained = 0
+
+    for previous in previous_events:
+        if previous.get("source") not in FUTURE_SUPER_BOWL_SOURCES:
+            continue
+
+        event_id = normalize_id(previous.get("id"))
+
+        if not event_id or event_id in current_ids:
+            continue
+
+        if event_id in excluded_event_ids:
+            continue
+
+        previous_date = event_calendar_date(previous)
+
+        if previous_date is None or previous_date < calendar_today():
+            continue
+
+        events.append(dict(previous))
+        current_ids.add(event_id)
+        retained += 1
+
+    return retained
 
 
 def event_labels(event, competition):
@@ -726,7 +1365,6 @@ def fetch_core_postseason_events(
     season_year,
     previous_events,
     current_super_bowl_roman,
-    current_official_super_bowl,
 ):
     event_refs = fetch_core_postseason_event_refs(
         season_year
@@ -769,18 +1407,9 @@ def fetch_core_postseason_events(
             CALENDAR_TIMEZONE
         ).date().isoformat()
 
-        matches_official_super_bowl_date = (
-            current_official_super_bowl is not None
-            and local_date
-            == current_official_super_bowl["date"]
-        )
-
         is_super_bowl = (
             week == 4
-            or (
-                current_super_bowl_roman
-                and matches_official_super_bowl_date
-            )
+            or is_super_bowl_event(event_detail, competition)
         )
 
         event_id = espn_event_id
@@ -1162,14 +1791,6 @@ def main():
     current_super_bowl_roman = super_bowl_roman_for_year(
         postseason_year
     )
-    current_official_super_bowl = next(
-        (
-            item
-            for item in OFFICIAL_FUTURE_SUPER_BOWLS
-            if item["roman"] == current_super_bowl_roman
-        ),
-        None,
-    )
 
     print(f"Using postseason for NFL season {season_year}")
     print(
@@ -1186,7 +1807,6 @@ def main():
         season_year,
         previous_events,
         current_super_bowl_roman,
-        current_official_super_bowl,
     )
 
     events = deduplicate_events(events)
@@ -1204,8 +1824,12 @@ def main():
     )
 
     placeholder_count = 0
+    cached_future_count = 0
+    future_super_bowls, future_source_degraded, _ = (
+        discover_verified_future_super_bowls(previous_events)
+    )
 
-    for super_bowl in OFFICIAL_FUTURE_SUPER_BOWLS:
+    for super_bowl in future_super_bowls:
         roman = super_bowl["roman"]
         event_id = super_bowl_event_id(roman)
 
@@ -1226,24 +1850,17 @@ def main():
         if event_date < calendar_today():
             continue
 
-        events.append({
-            "id": event_id,
-            "uid": super_bowl_uid(roman),
-            "name": f"Super Bowl {roman}",
-            "date": super_bowl["date"],
-            "venue": super_bowl["venue"],
-            "city": super_bowl["city"],
-            "network": super_bowl.get(
-                "network",
-                "TBA",
-            ),
-            "promotion": "NFL",
-            "all_day": True,
-            "status": "Kickoff time TBA",
-            "source": "official-future-super-bowl",
-            "source_url": super_bowl["source_url"],
-        })
+        events.append(
+            future_super_bowl_calendar_event(super_bowl)
+        )
         placeholder_count += 1
+
+    if future_source_degraded:
+        cached_future_count = retain_cached_future_super_bowls(
+            events,
+            previous_events,
+            excluded_event_ids,
+        )
 
     events = deduplicate_events(events)
     events, removed_count = filter_events_by_retention(
@@ -1265,9 +1882,10 @@ def main():
     write_events_atomically(events)
 
     print(f"Excluded {len(excluded_espn_ids)} Giants postseason events")
-    print(f"Retained {retained_count} temporarily missing events")
+    print(f"Retained {retained_count} temporarily missing ESPN events")
+    print(f"Retained {cached_future_count} cached future Super Bowls")
     print(f"Filtered {removed_count} events outside retention")
-    print(f"Added {placeholder_count} official future Super Bowls")
+    print(f"Added {placeholder_count} verified future Super Bowls")
     print(f"Generated {len(events)} events")
 
 
