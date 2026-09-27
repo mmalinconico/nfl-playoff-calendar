@@ -134,6 +134,14 @@ def serialize_event(item):
             f"Network: {item['network']}"
         )
 
+    if (
+        str(item.get("id", "")).startswith("super-bowl-")
+        and item.get("streaming")
+    ):
+        description.append(
+            f"Streaming: {item['streaming']}"
+        )
+
     if item.get("status"):
         description.append(item["status"])
 
