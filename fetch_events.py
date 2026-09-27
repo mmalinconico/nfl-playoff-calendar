@@ -1107,6 +1107,28 @@ def previous_event_for_espn_id(previous_events, espn_id):
     return None
 
 
+def previous_event_for_id(previous_events, event_id):
+    event_id = normalize_id(event_id)
+
+    for event in previous_events:
+        if normalize_id(event.get("id")) == event_id:
+            return event
+
+    return None
+
+
+def metadata_is_missing(value):
+    normalized = normalize_whitespace(value).casefold()
+
+    return normalized in {
+        "",
+        "tba",
+        "tbd",
+        "to be announced",
+        "to be determined",
+    }
+
+
 def fetch_core_postseason_event_refs(season_year):
     base = (
         "https://sports.core.api.espn.com/v2/"
@@ -1423,6 +1445,16 @@ def fetch_core_postseason_events(
                 current_super_bowl_roman
             )
 
+            # A future Super Bowl can exist in the calendar before ESPN has
+            # assigned its event ID. Once ESPN takes over, match the existing
+            # stable Super Bowl ID as well so verified venue/city/network
+            # metadata is not lost during that handoff.
+            if previous is None:
+                previous = previous_event_for_id(
+                    previous_events,
+                    event_id,
+                )
+
         if event_involves_giants(event_detail, competition):
             excluded_espn_ids.add(espn_event_id)
             excluded_event_ids.add(event_id)
@@ -1440,13 +1472,13 @@ def fetch_core_postseason_events(
         )
 
         if previous is not None:
-            if not venue:
+            if metadata_is_missing(venue):
                 venue = previous.get("venue", "")
 
-            if not city:
+            if metadata_is_missing(city):
                 city = previous.get("city", "")
 
-            if not network:
+            if metadata_is_missing(network):
                 network = previous.get("network", "")
 
         all_day = core_placeholder_time(
