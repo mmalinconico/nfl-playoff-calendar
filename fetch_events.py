@@ -1631,6 +1631,30 @@ def previous_event_indexes(previous_events):
     return by_id, by_espn_id
 
 
+def apply_confirmed_super_bowl_streaming(events):
+    updated_count = 0
+
+    for event in events:
+        event_id = normalize_id(event.get("id"))
+
+        if not event_id.startswith("super-bowl-"):
+            continue
+
+        roman = event_id.removeprefix("super-bowl-").upper()
+        streaming = confirmed_super_bowl_streaming(roman)
+
+        if not streaming:
+            continue
+
+        if event.get("streaming") == streaming:
+            continue
+
+        event["streaming"] = streaming
+        updated_count += 1
+
+    return updated_count
+
+
 def assign_stable_metadata(events, previous_events):
     timestamp = datetime.now(timezone.utc).strftime(
         "%Y%m%dT%H%M%SZ"
@@ -1939,6 +1963,9 @@ def main():
     events, removed_count = filter_events_by_retention(
         events
     )
+    streaming_update_count = apply_confirmed_super_bowl_streaming(
+        events
+    )
     assign_stable_metadata(
         events,
         previous_events,
@@ -1959,6 +1986,7 @@ def main():
     print(f"Retained {cached_future_count} cached future Super Bowls")
     print(f"Filtered {removed_count} events outside retention")
     print(f"Added {placeholder_count} verified future Super Bowls")
+    print(f"Applied streaming metadata to {streaming_update_count} Super Bowls")
     print(f"Generated {len(events)} events")
 
 
