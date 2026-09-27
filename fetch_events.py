@@ -40,6 +40,16 @@ NFL_IMPORTANT_DATES_URL = (
     "calendar-events/nfl-important-dates"
 )
 
+# Optional streaming metadata is deliberately independent of publication.
+# A Super Bowl is published as soon as its event/date passes the normal
+# verification rules; streaming can be added later without holding it up.
+# Only put a service here when its availability for that Super Bowl is
+# reliably confirmed. Do not infer streaming from the TV network.
+CONFIRMED_SUPER_BOWL_STREAMING = {
+    "LXI": "ESPN App / Disney+",
+    "LXII": "Paramount+",
+}
+
 # Emergency-only escape hatch. Normal operation should leave this empty.
 # If a trusted source changes format and a confirmed future Super Bowl would
 # otherwise disappear, an entry can temporarily be added here using:
@@ -49,6 +59,7 @@ NFL_IMPORTANT_DATES_URL = (
 #     "venue": "Example Stadium",
 #     "city": "Example City, State",
 #     "network": "TBA",
+#     "streaming": "Example Streamer",  # optional
 #     "source_url": "https://trusted-source.example/...",
 # }
 MANUAL_FUTURE_SUPER_BOWL_OVERRIDES = []
@@ -67,6 +78,7 @@ CALENDAR_FIELDS = (
     "venue",
     "city",
     "network",
+    "streaming",
     "status",
 )
 
@@ -192,6 +204,15 @@ def super_bowl_event_id(roman):
 
 def super_bowl_uid(roman):
     return f"super-bowl-{roman.lower()}@nfl-playoff-calendar"
+
+
+def confirmed_super_bowl_streaming(roman):
+    return normalize_whitespace(
+        CONFIRMED_SUPER_BOWL_STREAMING.get(
+            str(roman or "").upper(),
+            "",
+        )
+    )
 
 
 class TableTextParser(HTMLParser):
@@ -682,6 +703,7 @@ def discover_verified_future_super_bowls(previous_events):
             "venue": candidate["venue"],
             "city": candidate["city"],
             "network": candidate.get("network") or "TBA",
+            "streaming": confirmed_super_bowl_streaming(roman),
             "source_url": source_url,
         })
 
@@ -721,6 +743,10 @@ def discover_verified_future_super_bowls(previous_events):
             "city": normalize_whitespace(override.get("city")),
             "network": normalize_whitespace(
                 override.get("network") or "TBA"
+            ),
+            "streaming": normalize_whitespace(
+                override.get("streaming")
+                or confirmed_super_bowl_streaming(roman)
             ),
             "source_url": normalize_whitespace(
                 override.get("source_url")
@@ -768,7 +794,7 @@ def discover_verified_future_super_bowls(previous_events):
 
 def future_super_bowl_calendar_event(super_bowl):
     roman = super_bowl["roman"]
-    return {
+    event = {
         "id": super_bowl_event_id(roman),
         "uid": super_bowl_uid(roman),
         "name": f"Super Bowl {roman}",
@@ -786,6 +812,16 @@ def future_super_bowl_calendar_event(super_bowl):
         ),
         "source_url": super_bowl.get("source_url", ""),
     }
+
+    streaming = normalize_whitespace(
+        super_bowl.get("streaming")
+        or confirmed_super_bowl_streaming(roman)
+    )
+
+    if streaming:
+        event["streaming"] = streaming
+
+    return event
 
 
 def retain_cached_future_super_bowls(
@@ -1110,23 +1146,14 @@ def previous_event_for_espn_id(previous_events, espn_id):
 def previous_event_for_id(previous_events, event_id):
     event_id = normalize_id(event_id)
 
+    if not event_id:
+        return None
+
     for event in previous_events:
         if normalize_id(event.get("id")) == event_id:
             return event
 
     return None
-
-
-def metadata_is_missing(value):
-    normalized = normalize_whitespace(value).casefold()
-
-    return normalized in {
-        "",
-        "tba",
-        "tbd",
-        "to be announced",
-        "to be determined",
-    }
 
 
 def fetch_core_postseason_event_refs(season_year):
@@ -1445,10 +1472,10 @@ def fetch_core_postseason_events(
                 current_super_bowl_roman
             )
 
-            # A future Super Bowl can exist in the calendar before ESPN has
-            # assigned its event ID. Once ESPN takes over, match the existing
-            # stable Super Bowl ID as well so verified venue/city/network
-            # metadata is not lost during that handoff.
+            # The future placeholder has the canonical Super Bowl ID but no
+            # ESPN ID yet. Once ESPN takes over, use that prior event as a
+            # metadata fallback so optional fields such as streaming survive
+            # the handoff cleanly.
             if previous is None:
                 previous = previous_event_for_id(
                     previous_events,
@@ -1470,16 +1497,27 @@ def fetch_core_postseason_events(
         network = core_broadcast_networks(
             espn_event_id
         )
+        streaming = ""
+
+        if is_super_bowl and current_super_bowl_roman:
+            streaming = confirmed_super_bowl_streaming(
+                current_super_bowl_roman
+            )
 
         if previous is not None:
-            if metadata_is_missing(venue):
+            if not venue:
                 venue = previous.get("venue", "")
 
-            if metadata_is_missing(city):
+            if not city:
                 city = previous.get("city", "")
 
-            if metadata_is_missing(network):
+            if not network:
                 network = previous.get("network", "")
+
+            if is_super_bowl and not streaming:
+                streaming = normalize_whitespace(
+                    previous.get("streaming")
+                )
 
         all_day = core_placeholder_time(
             event_datetime,
@@ -1510,6 +1548,9 @@ def fetch_core_postseason_events(
             "source": "espn",
             "espn_id": espn_event_id,
         }
+
+        if is_super_bowl and streaming:
+            calendar_event["streaming"] = streaming
 
         if all_day:
             calendar_event["all_day"] = True
