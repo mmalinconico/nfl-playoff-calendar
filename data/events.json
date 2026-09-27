@@ -199,12 +199,12 @@
     "date": "2028-02-13",
     "venue": "Mercedes-Benz Stadium",
     "city": "Atlanta, Georgia",
-    "network": "TBA",
+    "network": "FOX",
     "promotion": "NFL",
     "all_day": true,
     "status": "Kickoff time TBA",
     "source": "official-future-super-bowl",
     "source_url": "https://www.mercedesbenzstadium.com/events/super-bowl-lxii",
-    "dtstamp": "20260801T034338Z"
+    "dtstamp": "20260927T211246Z"
   }
 ]
