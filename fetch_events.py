@@ -11,6 +11,7 @@ PAST_EVENT_RETENTION_DAYS = 7
 CALENDAR_TIMEZONE = ZoneInfo("America/New_York")
 POSTSEASON_SEASON_TYPE = 3
 POSTSEASON_WEEKS = (1, 2, 3, 4)
+GIANTS_ESPN_TEAM_ID = "19"
 
 HEADERS = {
     "User-Agent": (
@@ -30,7 +31,7 @@ OFFICIAL_FUTURE_SUPER_BOWLS = [
         "date": "2027-02-14",
         "venue": "SoFi Stadium",
         "city": "Inglewood, California",
-        "network": "TBA",
+        "network": "CBS",
         "source_url": (
             "https://operations.nfl.com/"
             "calendar-events/nfl-important-dates"
@@ -41,7 +42,7 @@ OFFICIAL_FUTURE_SUPER_BOWLS = [
         "date": "2028-02-13",
         "venue": "Mercedes-Benz Stadium",
         "city": "Atlanta, Georgia",
-        "network": "TBA",
+        "network": "FOX",
         "source_url": (
             "https://www.mercedesbenzstadium.com/"
             "events/super-bowl-lxii"
@@ -187,6 +188,8 @@ def event_labels(event, competition):
     labels = [
         event.get("name", ""),
         event.get("shortName", ""),
+        competition.get("name", ""),
+        competition.get("shortName", ""),
     ]
 
     status = event.get("status", {})
@@ -210,6 +213,92 @@ def event_labels(event, competition):
         for label in labels
         if label
     ]
+
+
+def ref_resource_id(ref, resource):
+    match = re.search(
+        rf"/{re.escape(resource)}/([^/?]+)",
+        str(ref or ""),
+    )
+
+    if match:
+        return normalize_id(match.group(1))
+
+    return ""
+
+
+def competition_team_ids(competition):
+    team_ids = set()
+    competitors = competition.get("competitors", [])
+
+    if not isinstance(competitors, list):
+        return team_ids
+
+    for competitor in competitors:
+        if not isinstance(competitor, dict):
+            continue
+
+        competitor_id = normalize_id(competitor.get("id"))
+
+        if competitor_id:
+            team_ids.add(competitor_id)
+
+        competitor_ref_id = ref_resource_id(
+            competitor.get("$ref"),
+            "competitors",
+        )
+
+        if competitor_ref_id:
+            team_ids.add(competitor_ref_id)
+
+        team = competitor.get("team")
+
+        if not isinstance(team, dict):
+            continue
+
+        team_id = normalize_id(team.get("id"))
+
+        if team_id:
+            team_ids.add(team_id)
+
+        team_ref_id = ref_resource_id(
+            team.get("$ref"),
+            "teams",
+        )
+
+        if team_ref_id:
+            team_ids.add(team_ref_id)
+
+    return team_ids
+
+
+def label_mentions_giants(value):
+    text = str(value or "").strip().lower()
+
+    if not text:
+        return False
+
+    if "new york giants" in text or "ny giants" in text:
+        return True
+
+    return re.search(
+        r"(?<![a-z0-9])nyg(?![a-z0-9])",
+        text,
+    ) is not None
+
+
+def event_involves_giants(event, competition):
+    if GIANTS_ESPN_TEAM_ID in competition_team_ids(competition):
+        return True
+
+    return any(
+        label_mentions_giants(label)
+        for label in event_labels(event, competition)
+    )
+
+
+def stored_event_involves_giants(event):
+    return label_mentions_giants(event.get("name", ""))
 
 
 def is_super_bowl_event(event, competition):
@@ -643,6 +732,8 @@ def fetch_core_postseason_events(
         season_year
     )
     events = []
+    excluded_espn_ids = set()
+    excluded_event_ids = set()
 
     for item in event_refs:
         espn_event_id = item["id"]
@@ -703,6 +794,15 @@ def fetch_core_postseason_events(
                 current_super_bowl_roman
             )
 
+        if event_involves_giants(event_detail, competition):
+            excluded_espn_ids.add(espn_event_id)
+            excluded_event_ids.add(event_id)
+            print(
+                "Excluded Giants postseason event: "
+                f"{espn_event_id}"
+            )
+            continue
+
         venue, city = core_venue_details(
             competition
         )
@@ -761,7 +861,7 @@ def fetch_core_postseason_events(
 
         events.append(calendar_event)
 
-    return events
+    return events, excluded_espn_ids, excluded_event_ids
 
 
 def legacy_uid_for_event(event):
@@ -864,11 +964,25 @@ def assign_stable_metadata(events, previous_events):
             event["dtstamp"] = timestamp
 
 
-def validate_espn_result(events, previous_events, postseason_year):
+def validate_espn_result(
+    events,
+    previous_events,
+    postseason_year,
+    excluded_espn_ids,
+):
     previous_future = [
         event
         for event in previous_events
         if event.get("source") == "espn"
+        and not stored_event_involves_giants(event)
+        and normalize_id(
+            event.get("espn_id")
+            or (
+                event.get("id")
+                if normalize_id(event.get("id")).isdigit()
+                else ""
+            )
+        ) not in excluded_espn_ids
         and (
             event_calendar_date(event) or date.min
         ) >= calendar_today()
@@ -948,6 +1062,7 @@ def filter_events_by_retention(events):
 def retain_temporarily_missing_events(
     events,
     previous_events,
+    excluded_espn_ids,
 ):
     retention_start = calendar_today() - timedelta(
         days=PAST_EVENT_RETENTION_DAYS
@@ -967,6 +1082,9 @@ def retain_temporarily_missing_events(
         if previous.get("source") != "espn":
             continue
 
+        if stored_event_involves_giants(previous):
+            continue
+
         event_id = normalize_id(previous.get("id"))
         espn_id = normalize_id(
             previous.get("espn_id")
@@ -976,6 +1094,9 @@ def retain_temporarily_missing_events(
                 else ""
             )
         )
+
+        if espn_id and espn_id in excluded_espn_ids:
+            continue
 
         if event_id in current_ids:
             continue
@@ -1057,7 +1178,11 @@ def main():
     )
 
     previous_events = load_previous_events()
-    events = fetch_core_postseason_events(
+    (
+        events,
+        excluded_espn_ids,
+        excluded_event_ids,
+    ) = fetch_core_postseason_events(
         season_year,
         previous_events,
         current_super_bowl_roman,
@@ -1069,11 +1194,13 @@ def main():
         events,
         previous_events,
         postseason_year,
+        excluded_espn_ids,
     )
 
     retained_count = retain_temporarily_missing_events(
         events,
         previous_events,
+        excluded_espn_ids,
     )
 
     placeholder_count = 0
@@ -1081,6 +1208,9 @@ def main():
     for super_bowl in OFFICIAL_FUTURE_SUPER_BOWLS:
         roman = super_bowl["roman"]
         event_id = super_bowl_event_id(roman)
+
+        if event_id in excluded_event_ids:
+            continue
 
         if any(
             event.get("id") == event_id
@@ -1134,6 +1264,7 @@ def main():
 
     write_events_atomically(events)
 
+    print(f"Excluded {len(excluded_espn_ids)} Giants postseason events")
     print(f"Retained {retained_count} temporarily missing events")
     print(f"Filtered {removed_count} events outside retention")
     print(f"Added {placeholder_count} official future Super Bowls")
