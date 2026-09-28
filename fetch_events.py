@@ -1156,6 +1156,18 @@ def previous_event_for_id(previous_events, event_id):
     return None
 
 
+def metadata_is_missing(value):
+    normalized = normalize_whitespace(value).casefold()
+
+    return normalized in {
+        "",
+        "tba",
+        "tbd",
+        "to be announced",
+        "to be determined",
+    }
+
+
 def fetch_core_postseason_event_refs(season_year):
     base = (
         "https://sports.core.api.espn.com/v2/"
@@ -1505,13 +1517,13 @@ def fetch_core_postseason_events(
             )
 
         if previous is not None:
-            if not venue:
+            if metadata_is_missing(venue):
                 venue = previous.get("venue", "")
 
-            if not city:
+            if metadata_is_missing(city):
                 city = previous.get("city", "")
 
-            if not network:
+            if metadata_is_missing(network):
                 network = previous.get("network", "")
 
             if is_super_bowl and not streaming:
