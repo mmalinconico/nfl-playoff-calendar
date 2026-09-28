@@ -792,7 +792,7 @@ def discover_verified_future_super_bowls(previous_events):
     return list(by_roman.values()), source_degraded, nfl_ok
 
 
-def future_super_bowl_calendar_event(super_bowl):
+def future_super_bowl_calendar_event(super_bowl, previous_event=None):
     roman = super_bowl["roman"]
     event = {
         "id": super_bowl_event_id(roman),
@@ -820,6 +820,17 @@ def future_super_bowl_calendar_event(super_bowl):
 
     if streaming:
         event["streaming"] = streaming
+
+    # A future-Super-Bowl source can temporarily become less specific even
+    # while the date remains verified. Never replace previously known calendar
+    # metadata with blank/TBA/TBD values during that refresh.
+    if previous_event is not None:
+        for field in ("venue", "city", "network", "streaming"):
+            if metadata_is_missing(event.get(field)):
+                previous_value = previous_event.get(field, "")
+
+                if not metadata_is_missing(previous_value):
+                    event[field] = previous_value
 
     return event
 
@@ -1959,8 +1970,16 @@ def main():
         if event_date < calendar_today():
             continue
 
+        previous_placeholder = previous_event_for_id(
+            previous_events,
+            event_id,
+        )
+
         events.append(
-            future_super_bowl_calendar_event(super_bowl)
+            future_super_bowl_calendar_event(
+                super_bowl,
+                previous_event=previous_placeholder,
+            )
         )
         placeholder_count += 1
 
