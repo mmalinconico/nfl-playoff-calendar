@@ -958,6 +958,63 @@ def competition_team_ids(competition):
     return team_ids
 
 
+def core_matchup_name(competition):
+    competitors = competition.get("competitors", [])
+
+    if not isinstance(competitors, list):
+        return ""
+
+    teams = {}
+
+    for competitor_value in competitors:
+        if not isinstance(competitor_value, dict):
+            continue
+
+        try:
+            competitor = resolve_ref(
+                competitor_value,
+                "ESPN Core competitor",
+            )
+        except requests.HTTPError:
+            competitor = competitor_value
+
+        home_away = normalize_whitespace(
+            competitor.get("homeAway")
+        ).lower()
+
+        if home_away not in {"away", "home"}:
+            continue
+
+        team_value = competitor.get("team")
+
+        if not isinstance(team_value, dict):
+            continue
+
+        try:
+            team = resolve_ref(
+                team_value,
+                "ESPN Core team",
+            )
+        except requests.HTTPError:
+            team = team_value
+
+        team_name = normalize_whitespace(
+            team.get("displayName")
+            or team.get("name")
+            or team.get("shortDisplayName")
+        )
+
+        if not team_name or metadata_is_missing(team_name):
+            continue
+
+        teams[home_away] = team_name
+
+    if "away" in teams and "home" in teams:
+        return f"{teams['away']} @ {teams['home']}"
+
+    return ""
+
+
 def label_mentions_giants(value):
     text = str(value or "").strip().lower()
 
@@ -1553,12 +1610,15 @@ def fetch_core_postseason_events(
         else:
             stored_date = date_text
 
-        name = sensible_core_name(
-            event_detail,
-            previous,
-            week,
-            current_super_bowl_roman,
-        )
+        name = core_matchup_name(competition)
+
+        if not name:
+            name = sensible_core_name(
+                event_detail,
+                previous,
+                week,
+                current_super_bowl_roman,
+            )
 
         calendar_event = {
             "id": event_id,
