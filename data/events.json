@@ -185,13 +185,13 @@
     "date": "2027-02-14T23:30Z",
     "venue": "SoFi Stadium",
     "city": "Inglewood",
-    "network": "ESPN / ABC",
+    "network": "ESPN / ABC / Disney+",
     "promotion": "NFL",
     "source": "espn",
     "espn_id": "401873270",
     "streaming": "ESPN App / Disney+",
     "uid": "super-bowl-lxi@nfl-playoff-calendar",
-    "dtstamp": "20260927T235002Z"
+    "dtstamp": "20261009T155113Z"
   },
   {
     "id": "super-bowl-lxii",
