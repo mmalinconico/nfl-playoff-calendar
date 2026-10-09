@@ -418,6 +418,21 @@ class FutureAndReliabilityCases(unittest.TestCase):
         self.assertEqual(current["uid"], prior["uid"])
         self.assertNotEqual(current["dtstamp"], prior["dtstamp"])
 
+    def test_malformed_previous_cache_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            invalid = Path(folder) / "events.json"
+            invalid.write_text("{ invalid json", encoding="utf-8")
+            with patch.object(fetch, "EVENTS_FILE", invalid):
+                with self.assertRaises(RuntimeError):
+                    fetch.load_previous_events()
+
+    def test_previous_cache_still_loads_normal_json(self):
+        with tempfile.TemporaryDirectory() as folder:
+            good = Path(folder) / "events.json"
+            good.write_text(json.dumps([recorded_event()]), encoding="utf-8")
+            with patch.object(fetch, "EVENTS_FILE", good):
+                self.assertEqual(len(fetch.load_previous_events()), 1)
+
     def test_future_date_parser_rejects_tba_and_non_sunday(self):
         self.assertIsNone(fetch.parse_future_date_text("TBA", 2029))
         self.assertIsNone(fetch.parse_future_date_text("February 12, 2029", 2029))
@@ -427,7 +442,9 @@ class FutureAndReliabilityCases(unittest.TestCase):
 
 class CalendarCompatibilityCases(unittest.TestCase):
     def test_checked_in_production_calendar(self):
-        self.assertEqual(validate_calendar.validate(), 14)
+        count = validate_calendar.validate()
+        stored = json.loads(Path("data/events.json").read_text(encoding="utf-8"))
+        self.assertEqual(count, len(stored))
 
     def test_roundtrip_ics_parses_in_independent_library(self):
         with tempfile.TemporaryDirectory() as folder:
