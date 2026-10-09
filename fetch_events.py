@@ -116,9 +116,12 @@ def load_previous_events():
             return data
 
     except (json.JSONDecodeError, OSError) as error:
-        print(f"Could not load previous events: {error}")
+        raise RuntimeError(
+            "Cannot read previous event cache; refusing to overwrite "
+            "a potentially valid published calendar."
+        ) from error
 
-    return []
+    raise RuntimeError("Previous event cache has an unexpected JSON structure.")
 
 
 def parse_event_datetime(date_text):
@@ -958,13 +961,21 @@ def competition_team_ids(competition):
     return team_ids
 
 
-def core_matchup_name(competition):
+def core_matchup_details(competition):
+    """Resolve ESPN's home/away competitors once, including Giants identity.
+
+    ESPN Core competitors and teams can be $ref-only objects. Checking only
+    the unexpanded event title can miss a Giants matchup while it is TBA.
+    The same resolved team data drives both the title and Giants suppression,
+    so no duplicate competitor/team lookups are required.
+    """
     competitors = competition.get("competitors", [])
 
     if not isinstance(competitors, list):
-        return ""
+        return "", False
 
     teams = {}
+    giants_present = False
 
     for competitor_value in competitors:
         if not isinstance(competitor_value, dict):
@@ -982,13 +993,19 @@ def core_matchup_name(competition):
             competitor.get("homeAway")
         ).lower()
 
-        if home_away not in {"away", "home"}:
-            continue
-
         team_value = competitor.get("team")
 
         if not isinstance(team_value, dict):
             continue
+
+        # A team reference can identify the Giants even when its HTTP lookup
+        # temporarily fails or the display name is not yet available.
+        if (
+            normalize_id(team_value.get("id")) == GIANTS_ESPN_TEAM_ID
+            or ref_resource_id(team_value.get("$ref"), "teams")
+            == GIANTS_ESPN_TEAM_ID
+        ):
+            giants_present = True
 
         try:
             team = resolve_ref(
@@ -1004,15 +1021,29 @@ def core_matchup_name(competition):
             or team.get("shortDisplayName")
         )
 
-        if not team_name or metadata_is_missing(team_name):
-            continue
+        if (
+            normalize_id(team.get("id")) == GIANTS_ESPN_TEAM_ID
+            or label_mentions_giants(team_name)
+            or str(team.get("abbreviation", "")).upper() == "NYG"
+        ):
+            giants_present = True
 
-        teams[home_away] = team_name
+        if (
+            home_away in {"away", "home"}
+            and team_name
+            and not metadata_is_missing(team_name)
+        ):
+            teams[home_away] = team_name
 
     if "away" in teams and "home" in teams:
-        return f"{teams['away']} @ {teams['home']}"
+        return f"{teams['away']} @ {teams['home']}", giants_present
 
-    return ""
+    return "", giants_present
+
+
+def core_matchup_name(competition):
+    """Keep the standalone title interface for callers and tests."""
+    return core_matchup_details(competition)[0]
 
 
 def label_mentions_giants(value):
@@ -1295,6 +1326,34 @@ def core_competition_for_event(event_id):
     )
 
 
+def is_spanish_broadcast(broadcast):
+    """Exclude explicitly Spanish-only feeds without extra API requests."""
+    language = broadcast.get("language") or broadcast.get("lang") or ""
+
+    if isinstance(language, dict):
+        language = (
+            language.get("code")
+            or language.get("abbreviation")
+            or language.get("name")
+            or ""
+        )
+
+    cleaned = normalize_whitespace(language).casefold()
+    return cleaned in {"es", "es-es", "es-mx", "spa", "spanish", "español"}
+
+
+def is_spanish_network(name):
+    value = normalize_whitespace(name).casefold()
+    return any(term in value for term in (
+        "espn deportes",
+        "fox deportes",
+        "telemundo",
+        "universo",
+        "tudn",
+        "univision",
+    ))
+
+
 def core_broadcast_networks(event_id):
     url = (
         "https://sports.core.api.espn.com/v2/"
@@ -1328,6 +1387,9 @@ def core_broadcast_networks(event_id):
             f"ESPN Core broadcast {event_id}",
         )
 
+        if is_spanish_broadcast(broadcast):
+            continue
+
         candidates = []
 
         if isinstance(broadcast.get("names"), list):
@@ -1356,7 +1418,7 @@ def core_broadcast_networks(event_id):
         for candidate in candidates:
             cleaned = str(candidate).strip()
 
-            if cleaned and cleaned not in names:
+            if cleaned and not is_spanish_network(cleaned) and cleaned not in names:
                 names.append(cleaned)
 
     return " / ".join(names)
@@ -1562,7 +1624,9 @@ def fetch_core_postseason_events(
                     event_id,
                 )
 
-        if event_involves_giants(event_detail, competition):
+        matchup_name, resolved_giants = core_matchup_details(competition)
+
+        if resolved_giants or event_involves_giants(event_detail, competition):
             excluded_espn_ids.add(espn_event_id)
             excluded_event_ids.add(event_id)
             print(
@@ -1607,10 +1671,23 @@ def fetch_core_postseason_events(
 
         if all_day:
             stored_date = local_date
+            # Preserve a previously confirmed kickoff when ESPN briefly
+            # retracts timeValid for the SAME local calendar day. If the
+            # date itself moves, honor the new date with TBA kickoff.
+            if (
+                previous is not None
+                and not previous.get("all_day")
+                and event_calendar_date(previous)
+                == event_datetime.astimezone(CALENDAR_TIMEZONE).date()
+            ):
+                previous_kickoff = parse_event_datetime(previous.get("date"))
+                if previous_kickoff is not None:
+                    stored_date = previous["date"]
+                    all_day = False
         else:
             stored_date = date_text
 
-        name = core_matchup_name(competition)
+        name = matchup_name
 
         if not name:
             name = sensible_core_name(
