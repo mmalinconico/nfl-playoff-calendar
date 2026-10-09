@@ -1354,6 +1354,29 @@ def is_spanish_network(name):
     ))
 
 
+def television_broadcast_names(value):
+    """Keep TV networks separate from streaming-only distribution services.
+
+    ESPN occasionally lists streaming platforms alongside broadcast networks.
+    Confirmed Super Bowl streaming is handled independently, not inferred
+    from this broadcast feed. Accept separately listed names or a combined
+    'ESPN / ABC / Disney+' field without duplicating the streaming service.
+    """
+    streaming_only = {
+        "disney+", "disney plus", "paramount+", "paramount plus",
+        "espn+", "espn app", "peacock", "prime video",
+        "amazon prime video", "netflix", "youtube tv", "nfl+",
+        "max", "hbo max",
+    }
+    return [
+        part.strip()
+        for part in re.split(r"\s*/\s*", str(value or ""))
+        if part.strip()
+        and part.strip().casefold() not in streaming_only
+        and not is_spanish_network(part)
+    ]
+
+
 def core_broadcast_networks(event_id):
     url = (
         "https://sports.core.api.espn.com/v2/"
@@ -1416,10 +1439,9 @@ def core_broadcast_networks(event_id):
                     candidates.append(media[key])
 
         for candidate in candidates:
-            cleaned = str(candidate).strip()
-
-            if cleaned and not is_spanish_network(cleaned) and cleaned not in names:
-                names.append(cleaned)
+            for cleaned in television_broadcast_names(candidate):
+                if cleaned not in names:
+                    names.append(cleaned)
 
     return " / ".join(names)
 

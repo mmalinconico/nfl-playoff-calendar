@@ -249,6 +249,60 @@ class FetchEventCases(unittest.TestCase):
             self.assertEqual(fetch.core_broadcast_networks("123"),
                              "CBS / FOX / ABC")
 
+    def test_streaming_providers_do_not_appear_as_tv_networks(self):
+        # ESPN began listing Disney+ with ESPN and ABC on 2026-10-09.
+        # The calendar must keep the independent confirmed streaming line.
+        broadcasts = [
+            {"name": "ESPN", "language": "English"},
+            {"name": "ABC", "language": "English"},
+            {"name": "Disney+", "language": "English"},
+            {"name": "ESPN App"},
+            {"name": "Peacock"},
+            {"name": "Paramount+"},
+            {"name": "ABC"},  # deduplicate repeated TV assignments
+        ]
+        with patch.object(fetch, "core_collection_items",
+                          return_value=broadcasts):
+            networks = fetch.core_broadcast_networks("401873270")
+        self.assertEqual(networks, "ESPN / ABC")
+        sb = recorded_event(
+            id="super-bowl-lxi", uid=fetch.super_bowl_uid("LXI"),
+            network=networks, streaming=fetch.confirmed_super_bowl_streaming("LXI"))
+        description = next(x for x in generator.serialize_event(sb)
+                           if x.startswith("DESCRIPTION:"))
+        self.assertEqual(
+            description,
+            "DESCRIPTION:Network: ESPN / ABC\\nStreaming: ESPN App / Disney+"
+        )
+
+    def test_combined_tv_streaming_name_is_split_and_cleaned(self):
+        broadcasts = [
+            {"name": "ESPN / ABC / Disney+"},
+            {"names": ["ABC", "ESPN App", "Peacock", "CBS / Paramount+"]},
+            {"media": {"name": "Disney+"}},
+        ]
+        with patch.object(fetch, "core_collection_items",
+                          return_value=broadcasts):
+            self.assertEqual(
+                fetch.core_broadcast_networks("401873270"),
+                "ESPN / ABC / CBS",
+            )
+
+    def test_english_tv_networks_still_survive_streaming_filter(self):
+        broadcasts = [
+            {"name": "NBC"},
+            {"name": "FOX"},
+            {"name": "ESPN"},
+            {"name": "ABC"},
+            {"name": "CBS"},
+        ]
+        with patch.object(fetch, "core_collection_items",
+                          return_value=broadcasts):
+            self.assertEqual(
+                fetch.core_broadcast_networks("123"),
+                "NBC / FOX / ESPN / ABC / CBS",
+            )
+
     def test_non_super_bowl_streaming_is_never_serialized(self):
         item = recorded_event(streaming="Some Platform", network="NBC")
         description = next(x for x in generator.serialize_event(item)
