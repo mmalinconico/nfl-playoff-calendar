@@ -1,0 +1,33 @@
+name: Test NFL Playoff Calendar
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  test-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Validate Python syntax
+        run: python -m py_compile fetch_events.py generate_calendar.py validate_calendar.py tests/test_nfl_calendar.py
+
+      - name: Install test dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Run offline NFL regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate checked-in calendar and iCalendar compatibility
+        run: python validate_calendar.py
