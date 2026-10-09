@@ -1370,7 +1370,7 @@ def television_broadcast_names(value):
     }
     return [
         part.strip()
-        for part in re.split(r"\\s*/\\s*", str(value or ""))
+        for part in re.split(r"\s*/\s*", str(value or ""))
         if part.strip()
         and part.strip().casefold() not in streaming_only
         and not is_spanish_network(part)
