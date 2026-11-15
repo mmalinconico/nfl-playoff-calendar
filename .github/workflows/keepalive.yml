@@ -1,0 +1,51 @@
+name: Keep NFL Calendar Schedules Active
+
+# GitHub can disable scheduled workflows in public repositories after
+# 60 days without repository activity. A rare empty commit keeps the
+# existing postseason scheduler available for the next season.
+on:
+  schedule:
+    # Twice monthly, off the hour to reduce GitHub scheduler delays.
+    - cron: "47 9 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nfl-calendar-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Keep repository active only when necessary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LAST_COMMIT=$(git log -1 --format=%ct)
+          NOW=$(date -u +%s)
+          DAYS_SINCE_COMMIT=$(( (NOW - LAST_COMMIT) / 86400 ))
+
+          echo "Days since last repository commit: ${DAYS_SINCE_COMMIT}"
+
+          # Allow margin for skipped or delayed scheduled executions.
+          if [ "$DAYS_SINCE_COMMIT" -lt 25 ]; then
+            echo "Repository has recent activity. No keepalive commit needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # No changes to calendar files, source data, or README.
+          git commit --allow-empty -m "chore: prevent scheduled workflow inactivity"
+          git push origin HEAD:main
+          echo "Keepalive commit pushed."
